@@ -1,12 +1,22 @@
+<?php
+    session_start();
+
+    if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity'] > 7200)) {
+        session_unset();
+        session_destroy();
+        header("Location: login.php");
+        exit;
+    }
+    $_SESSION['last_activity'] = time();
+?>
 <!DOCTYPE html>
 <html lang="en">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <link rel="stylesheet" href="../css/style.css">
-    <title>Order</title>
+    <title>Wishlist</title>
 </head>
 
 <body>
@@ -18,6 +28,10 @@
         <div class="container">
             <h2>Your wishlist till now</h2>
             <?php
+            if (!isset($_SESSION['userid'])) {
+                header("Location: login.php");
+                exit();
+            }
             $loggeduser = $_SESSION['userid'];
             $personalwishlistquery = "SELECT * FROM `wishlist` WHERE `user_id`='$loggeduser'";
             $personalwishlistresult = mysqli_query($connect, $personalwishlistquery);

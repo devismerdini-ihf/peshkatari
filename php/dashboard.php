@@ -1,17 +1,19 @@
-<!DOCTYPE html>
-<html lang="en">
+<?php
+    session_start();
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="../css/style.css">
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-    <title>Dashboard</title>
-</head>
+    if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity'] > 7200)) {
+        session_unset();
+        session_destroy();
+        header("Location: login.php");
+        exit;
+    }
+    $_SESSION['last_activity'] = time();
 
-<body>
+    if (!isset($_SESSION['userid'])) {
+        header("Location: login.php");
+        exit;
+    }
 
-    <?php
     include "connection/connect.php";
     include "components/navbar.php";
     if (isset($_POST['logout'])) {
@@ -21,20 +23,25 @@
         exit;
     }
 
-    ?>
+?>
+<!DOCTYPE html>
+<html lang="en">
 
-    <div class="container mx-auto p-6">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="../css/style.css">
+    <title>Dashboard</title>
+</head>
 
-        <h1 class="text-2xl font-bold mb-4">
-            Welcome back,<?php if (isset($_SESSION['userusename'])): ?> <?php echo htmlspecialchars($_SESSION['userusename']); ?>!
+<body>
+
+    <div class="container">
+
+        <h1>
+            Welcome back, <?php echo htmlspecialchars($_SESSION['userusename']); ?>!
         </h1>
 
-    <?php else: ?>
-        <p class="mb-4">You are not logged in.</p>
-        <a href="<?php echo $baseURL; ?>login.php" class="bg-blue-600 text-white px-3 py-1 rounded">
-            Log in
-        </a>
-    <?php endif; ?>
     </div>
     <main></main>
 

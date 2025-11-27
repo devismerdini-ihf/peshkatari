@@ -1,9 +1,6 @@
 <nav>
     <div class="container">
         <?php
-        session_start();
-        ?>
-        <?php
         $baseURL = "http://localhost/peshkatari/php/";
         ?>
 

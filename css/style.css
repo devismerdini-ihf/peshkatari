@@ -18,6 +18,10 @@ nav > * {
   justify-content: space-between;
   align-items: center;
 }
+nav * {
+  color: white;
+  text-decoration: none;
+}
 .toplogo:hover > svg {
   rotate: 6deg;
 }

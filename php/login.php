@@ -1,86 +1,38 @@
 <?php
-/*
-1. Hashimi i Fjalëkalimit me password_hash() dhe password_verify()
-Ky është tipari më i rëndësishëm i sigurisë:
-
-Për regjistrim (Sign Up): Përdorni funksionin password_hash($rawPassword, PASSWORD_DEFAULT) për të kthyer fjalëkalimin e thjeshtë në një varg karakteresh të pa-kthyeshëm (hash). Ky është standardi aktual i sigurisë në PHP dhe përdor algoritmin Bcrypt (ose një më të mirë nëse bëhet i disponueshëm).
-
-Për hyrje (Login): Përdorni funksionin password_verify($EnteredPassword, $storedHash) për të krahasuar fjalëkalimin e futur nga përdoruesi me hash-in e ruajtur në databazë. Ky funksion eliminon nevojën për algoritme të vjetra (si MD5) dhe parandalon që fjalëkalimet të zbulohen në rast se databaza kompromentohet.
-
-2. Përdorimi i Fjalive të Përgatitura (Prepared Statements)
-Përdorimi i funksioneve mysqli_prepare() dhe mysqli_stmt_bind_param() është një veçori thelbësore e sigurisë:
-
-Mbrojtje nga SQL Injection: Ky mekanizëm i mbron të dhënat tuaja nga sulmet SQL Injection duke ndarë komandën SQL nga të dhënat e përdoruesit. Të dhënat e përdoruesit trajtohen gjithmonë si vlera, jo si pjesë e komandës SQL.
-
-3. Logjika e Vlefshmërisë së Fjalëkalimit të Ri (Password Change Validation)
-Blloku i ndryshimit të fjalëkalimit (Change Password) është i sigurt dhe i strukturuar mirë sepse:
-
-Verifikon Fjalëkalimin e Vjetër: Së pari, kodi merr hash-in e vjetër dhe e verifikon atë me fjalëkalimin e futur nga përdoruesi duke përdorur password_verify(). Kjo siguron që vetëm pronari i llogarisë po bën ndryshimin.
-
-Verifikon Përputhshmërinë e Fjalëkalimeve të Reja: Përdorimi i kushtit if ($newPassword !== $confirmNewPassword) parandalon gabimet e shkrimit dhe siguron që përdoruesi të vendosë fjalëkalimin e dëshiruar.
-
-Rihashon Fjalëkalimin e Ri: Fjalëkalimi i ri (nëse vërtetohet) hash-ohet menjëherë me password_hash() para se të ruhet në databazë, duke ruajtur kështu nivelin e lartë të sigurisë.
-*/
-
-// Fillimi i sesionit duhet të jetë gjithmonë funksioni i parë
-// që thirret në çdo faqe që përdor variabla sesioni.
-session_start();
-
-
-// Lidhja me databazën duhet të përfshihet para se të ekzekutohet
-// çdo logjikë që e përdor variablën $connect.
-include "connection/connect.php";
-
-// Logjika e Përpunimit të Formës së Hyrjes (Login)
 if (isset($_POST['loginbtn'])) {
     $Enteredusername = $_POST['enteredusername'];
     $Enteredpassword = $_POST['enteredpassword'];
 
-    // 1. Përgatitja e Fjalisë SQL
-    // Këtu marrim ID-në, hash-in e fjalëkalimit dhe të dhënat e tjera.
-    // Përdorimi i '?' ndalon SQL Injection.
+    // 1. Prepare SQL statement to select user by username (DO NOT select password yet)
+    // Using LIMIT 1 is a good practice as usernames should be unique
     $loginquery = "SELECT user_id, user_password, user_username, user_pic, user_status FROM users WHERE user_username = ? LIMIT 1";
 
-    // 2. Inicializo dhe Përgatit fjalinë (Prepared Statement)
+    // 2. Initialize and prepare the statement
     $stmt = mysqli_prepare($connect, $loginquery);
+    mysqli_stmt_bind_param($stmt, "s", $Enteredusername); // "s" for string
 
-    // Lidhja e parametrave (vlera e përdoruesit lidhet me '?' si string - "s")
-    mysqli_stmt_bind_param($stmt, "s", $Enteredusername);
-
-    // 3. Ekzekutimi i fjalisë
+    // 3. Execute the statement
     mysqli_stmt_execute($stmt);
 
-    // 4. Marrja e rezultateve
+    // 4. Get the result set and data
     $loginresult = mysqli_stmt_get_result($stmt);
 
-    // Kontrollon nëse është gjetur një përdorues dhe merr të dhënat
     if ($loginresult && $userdata = mysqli_fetch_assoc($loginresult)) {
-        // 5. Verifikimi i Fjalëkalimit (Siguria Kryesore!)
-        // Përdor funksionin modern password_verify() për të krahasuar fjalëkalimin e thjeshtë
-        // me hash-in e ruajtur (Bcrypt).
+        // 5. Verify the password using the stored hash
         if (password_verify($Enteredpassword, $userdata['user_password'])) {
-
-            // Sukses! Vendos variablat e sesionit
+            // Success! Set session variables
             $_SESSION['userid'] = $userdata['user_id'];
             $_SESSION['userusename'] = $userdata['user_username'];
             $_SESSION['userpic'] = $userdata['user_pic'];
             $_SESSION['userstatus'] = $userdata['user_status'];
 
-            // Përfundon fjalinë dhe ridrejton në dashboard
             mysqli_stmt_close($stmt);
             header('location: dashboard.php');
-            exit; // Është mirë të përdoret exit pas header('location')
+            exit;
         }
     }
-
-    // Dështim (Përdoruesi nuk u gjet ose fjalëkalimi nuk u përputh)
-    // Megjithëse ridrejtimi ndodh vetëm një herë, kjo linjë siguron
-    // që $stmt të mbyllet në të gjitha rastet.
-    // Ky mesazh është gjithashtu i mirë për sigurinë: nuk tregon nëse gabimi ishte
-    // fjalëkalimi apo emri i përdoruesit (parandalon enumerimin e përdoruesve).
-    if (isset($stmt)) {
-        mysqli_stmt_close($stmt);
-    }
+    // Failure (no user found or password didn't match)
+    mysqli_stmt_close($stmt);
     header("location: login.php?nouserfound=No user was found");
     exit;
 }
@@ -104,9 +56,6 @@ if (isset($_POST['loginbtn'])) {
             <div class="forms">
                 <div class="form-wrapper is-active">
                     <?php
-                    // Shfaq mesazhin e dështimit të login-it nëse ekziston variabla GET
-                    // VINI RE: Po kërkoni $get, por duhet të jetë $_GET
-                    // Kontrollo: if (isset($_GET['nouserfound'])) { ... }
                     if (isset($get['nouserfound'])) {
                         echo "<p>no user was found</p>";
                     }
@@ -129,62 +78,95 @@ if (isset($_POST['loginbtn'])) {
                             </div>
                         </fieldset>
                         <button type="submit" name="loginbtn" class="btn-login">Login</button>
-
                         <?php
-                        // *** VINI RE: KJO ËSHTË BLLOKU I DYTË I LOGJIKËS SË LOGIN-IT ***
-                        // Blloku i login-it (rreshtat 4-37) është tashmë në krye të faqes.
-                        // Ky bllok këtu më poshtë (rreshtat 104-137) duhet të HIQET sepse është DUBLIKAT
-                        // dhe përdorimi i include "connection/connect.php"; KËTU do të shkaktonte
-                        // një gabim nëse lidhja është tashmë e hapur.
-
-                        // HIQ KËTË BLLOK TË KODIT TË DUPLIKUAR:
-                        /*
-                        include "connection/connect.php"; 
+                        include "connection/connect.php";
                         if (isset($_POST['loginbtn'])) {
-                            // ... Të gjithë rreshtat e logjikës së login-it duplikat ...
+                            $Enteredusername = $_POST['enteredusername'];
+                            $Enteredpassword = $_POST['enteredpassword'];
+
+                            // 1. Prepare SQL statement to select user by username (DO NOT select password yet)
+                            // Using LIMIT 1 is a good practice as usernames should be unique
+                            $loginquery = "SELECT user_id, user_password, user_username, user_pic, user_status FROM users WHERE user_username = ? LIMIT 1";
+
+                            // 2. Initialize and prepare the statement
+                            $stmt = mysqli_prepare($connect, $loginquery);
+                            mysqli_stmt_bind_param($stmt, "s", $Enteredusername); // "s" for string
+
+                            // 3. Execute the statement
+                            mysqli_stmt_execute($stmt);
+
+                            // 4. Get the result set and data
+                            $loginresult = mysqli_stmt_get_result($stmt);
+
+                            if ($loginresult && $userdata = mysqli_fetch_assoc($loginresult)) {
+                                // 5. Verify the password using the stored hash
+                                if (password_verify($Enteredpassword, $userdata['user_password'])) {
+                                    // Success! Set session variables
+                                    $_SESSION['userid'] = $userdata['user_id'];
+                                    $_SESSION['userusename'] = $userdata['user_username'];
+                                    $_SESSION['userpic'] = $userdata['user_pic'];
+                                    $_SESSION['userstatus'] = $userdata['user_status'];
+
+                                    mysqli_stmt_close($stmt);
+                                    header('location: dashboard.php');
+                                    exit;
+                                }
+                            }
+                            // Failure (no user found or password didn't match)
+                            mysqli_stmt_close($stmt);
+                            header("location: login.php?nouserfound=No user was found");
+                            exit;
                         }
-                        */
                         ?>
                     </form>
                 </div>
-
                 <div class="form-wrapper">
                     <button type="button" class="switcher switcher-signup">
                         Sign Up
                         <span class="underline"></span>
                     </button>
-
                     <form class="form form-signup" method="post">
                         <fieldset>
                             <legend>Please, enter your email, password and password confirmation for sign up.</legend>
+                            <div class="input-block">
+                                <label for="signup-email">E-mail</label>
+                                <input id="signup-email" type="email" name="signup-email" required>
+                            </div>
+                            <div class="input-block">
+                                <label for="signup-username">Username</label>
+                                <input id="signup-username" type="text" name="signup-username" required>
+                            </div>
+                            <div class="input-block">
+                                <label for="signup-password">Password</label>
+                                <input id="signup-password" type="password" name="signup-password" required>
+                            </div>
                         </fieldset>
                         <button type="submit" class="btn-signup" name="signupnewuser">Continue</button>
-
                         <?php
-                        // Logjika e Regjistrimit (Sign Up)
                         if (isset($_POST['signupnewuser'])) {
                             $newuserusername = $_POST['signup-username'];
                             $newusersignupemail = $_POST['signup-email'];
                             $rawPassword = $_POST['signup-password'];
 
-                            // 1. Hashimi i Fjalëkalimit (TIPARI MË I MIRË I SIGURISË)
-                            // Konverton fjalëkalimin e thjeshtë në një hash të sigurt (Bcrypt).
+                            // 1. Securely hash the raw password
                             $newusersignuppassword = password_hash($rawPassword, PASSWORD_DEFAULT);
 
-                            // 2. Përgatitja e Fjalisë SQL për INSERT
+                            // 2. Prepare the INSERT statement
                             $newuserquery = "INSERT INTO users (user_email, user_password, user_username) VALUES (?, ?, ?)";
 
-                            // 3. Inicializimi dhe Lidhja e Parametrave
+                            // 3. Initialize and prepare the statement
                             $stmt = mysqli_prepare($connect, $newuserquery);
-                            // Lidhja e 3 stringjeve: email, hash i fjalëkalimit, username ("sss")
-                            mysqli_stmt_bind_param($stmt, "sss", $newusersignupemail, $newusersignuppassword, $newuserusername);
+                            mysqli_stmt_bind_param($stmt, "sss", $newusersignupemail, $newusersignuppassword, $newuserusername); // "sss" for three strings
 
-                            // 4. Ekzekutimi
+                            // 4. Execute the statement
                             if (mysqli_stmt_execute($stmt)) {
-                                // Sukses
+                                // Success
                                 echo "<h1>New user created! You can now log in.</h1>";
+                                // Optionally redirect the user to the login form
+                                // header("Location: login.php?success=1");
+                                // exit;
                             } else {
-                                // Dështim
+                                // Failure
                                 echo "error creating user! " . mysqli_error($connect) . " detected during execution";
                             }
 
@@ -193,76 +175,39 @@ if (isset($_POST['loginbtn'])) {
                         ?>
                     </form>
                 </div>
-
                 <div class="form-wrapper">
                     <button type="button" class="switcher switcher-secure-change">
                         Change Password
                         <span class="underline"></span>
                     </button>
-
                     <form class="form form-secure-change" method="post">
                         <fieldset>
                             <legend>Verify your identity and set a new password.</legend>
+
+                            <div class="input-block">
+                                <label for="change-username">Username</label>
+                                <input id="change-username" type="text" name="change-username" required>
+                            </div>
+
+                            <div class="input-block">
+                                <label for="old-password">Current Password</label>
+                                <input id="old-password" type="password" name="old-password" required>
+                            </div>
+
+                            <div class="input-block">
+                                <label for="new-password">New Password</label>
+                                <input id="new-password" type="password" name="new-password" required>
+                            </div>
+
+                            <div class="input-block">
+                                <label for="confirm-new-password">Confirm New Password</label>
+                                <input id="confirm-new-password" type="password" name="confirm-new-password" required>
+                            </div>
                         </fieldset>
                         <button type="submit" class="btn-change-password" name="secure-change-password-btn">Update Password</button>
 
                         <?php
-                        // Logjika e Ndryshimit të Fjalëkalimit
-                        if (isset($_POST['secure-change-password-btn'])) {
-                            $enteredUsername = $_POST['change-username'];
-                            $oldPassword = $_POST['old-password'];
-                            $newPassword = $_POST['new-password'];
-                            $confirmNewPassword = $_POST['confirm-new-password'];
-
-                            // --- 1. Kontrollet e Vlefshmërisë Bazë ---
-                            if ($newPassword !== $confirmNewPassword) {
-                                echo "<p class='error'>New passwords do not match.</p>";
-                            } elseif (strlen($newPassword) < 3) { // Rekomandohet minimumi 8-10
-                                echo "<p class='error'>New password must be at least 3 characters long.</p>";
-                            } else {
-                                // --- 2. Gjej Përdoruesin dhe Hash-in e Vjetër ---
-                                $fetchQuery = "SELECT user_id, user_password FROM users WHERE user_username = ? LIMIT 1";
-                                $stmt = mysqli_prepare($connect, $fetchQuery);
-                                mysqli_stmt_bind_param($stmt, "s", $enteredUsername);
-                                mysqli_stmt_execute($stmt);
-                                $result = mysqli_stmt_get_result($stmt);
-
-                                if ($result && $user = mysqli_fetch_assoc($result)) {
-                                    $userId = $user['user_id'];
-                                    $storedHash = $user['user_password'];
-
-                                    // --- 3. Verifiko Fjalëkalimin e Vjetër ---
-                                    if (password_verify($oldPassword, $storedHash)) {
-
-                                        // --- 4. Hasho Fjalëkalimin e Ri (Siguria) ---
-                                        $newHashedPassword = password_hash($newPassword, PASSWORD_DEFAULT);
-
-                                        // --- 5. Bëj Update Databazën me Hash-in e Ri ---
-                                        $updateQuery = "UPDATE users SET user_password = ? WHERE user_id = ?";
-                                        $updateStmt = mysqli_prepare($connect, $updateQuery);
-                                        // Lidhja e një stringu (hash) dhe një integer (id) ("si")
-                                        mysqli_stmt_bind_param($updateStmt, "si", $newHashedPassword, $userId);
-
-                                        if (mysqli_stmt_execute($updateStmt)) {
-                                            echo "<p class='success'>Password successfully changed! Please log in with your new password. 🎉</p>";
-                                            // Është mirë të shkatërrohet sesioni pas ndryshimit të fjalëkalimit për siguri.
-                                            if (isset($_SESSION['userid'])) {
-                                                session_destroy();
-                                            }
-                                        } else {
-                                            echo "<p class='error'>Database error during update: " . mysqli_error($connect) . "</p>";
-                                        }
-                                        mysqli_stmt_close($updateStmt);
-                                    } else {
-                                        // Mesazhi i gabimit i kombinuar për të rritur sigurinë
-                                        echo "<p class='error'>Username or current password is incorrect.</p>";
-                                    }
-                                } else {
-                                    echo "<p class='error'>Username or current password is incorrect.</p>";
-                                }
-                                mysqli_stmt_close($stmt);
-                            }
-                        }
+                        // PHP logic for changing the password will be inserted here
                         ?>
                     </form>
                 </div>
@@ -272,22 +217,69 @@ if (isset($_POST['loginbtn'])) {
 
 
     <?php
-    // Përfshirja e fundit e faqes
+    if (isset($_POST['change-password-btn'])) {
+        $currentPassword = $_POST['current-password'];
+        $newPassword = $_POST['new-password'];
+        $confirmPassword = $_POST['confirm-password'];
+        $userId = $_SESSION['userid'];
+
+        // --- Validation Checks ---
+        if ($newPassword !== $confirmPassword) {
+            echo "<p class='error'>New passwords do not match.</p>";
+            // You might want to redirect with a URL parameter here instead of echoing.
+        } elseif (strlen($newPassword) < 8) {
+            echo "<p class='error'>New password must be at least 8 characters long.</p>";
+        } else {
+            // --- 1. Fetch Current Hash using Prepared Statement ---
+            $fetchQuery = "SELECT user_password FROM users WHERE user_id = ? LIMIT 1";
+            $stmt = mysqli_prepare($connect, $fetchQuery);
+            mysqli_stmt_bind_param($stmt, "i", $userId); // "i" for integer
+            mysqli_stmt_execute($stmt);
+            $result = mysqli_stmt_get_result($stmt);
+
+            if ($result && $user = mysqli_fetch_assoc($result)) {
+                $storedHash = $user['user_password'];
+
+                // --- 2. Verify Current Password ---
+                if (password_verify($currentPassword, $storedHash)) {
+
+                    // --- 3. Hash New Password ---
+                    $newHashedPassword = password_hash($newPassword, PASSWORD_DEFAULT);
+
+                    // --- 4. Update Database with New Hash using Prepared Statement ---
+                    $updateQuery = "UPDATE users SET user_password = ? WHERE user_id = ?";
+                    $updateStmt = mysqli_prepare($connect, $updateQuery);
+                    mysqli_stmt_bind_param($updateStmt, "si", $newHashedPassword, $userId); // "s" for string, "i" for integer
+
+                    if (mysqli_stmt_execute($updateStmt)) {
+                        echo "<p class='success'>Password successfully changed! 🎉</p>";
+                    } else {
+                        echo "<p class='error'>Database error during update: " . mysqli_error($connect) . "</p>";
+                    }
+                    mysqli_stmt_close($updateStmt);
+                } else {
+                    echo "<p class='error'>Current password entered is incorrect.</p>";
+                }
+            } else {
+                echo "<p class='error'>User not found.</p>";
+            }
+            mysqli_stmt_close($stmt);
+        }
+    }
     include "components/footer.php";
     ?>
 
 </body>
 <script>
-    // KODI JAVASCRIPT PËR NDRYSHIMIN E FORMULARËVE
     const switchers = [...document.querySelectorAll('.switcher')]
     const resetWrapper = document.querySelector('.form-wrapper:last-child'); // Target the new wrapper
 
     switchers.forEach(item => {
         item.addEventListener('click', function() {
-            // Gjen formën aktive dhe largon klasën
+            // Find the active form wrapper and remove the class
             document.querySelector('.form-wrapper.is-active').classList.remove('is-active');
 
-            // Shton klasën te forma e klikuar
+            // Add the class to the clicked switcher's parent
             this.parentElement.classList.add('is-active');
         })
     })
